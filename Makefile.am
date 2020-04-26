@@ -4,7 +4,7 @@ AM_CPPFLAGS = -I$(top_srcdir)/src $(OS_SPECIFIC_CFLAGS)
 
 DISTCHECK_CONFIGURE_FLAGS = --enable-werror
 
-CLEANFILES = programs/*.wav
+CLEANFILES = programs/*.wav octave-workspace
 
 if FULL_SUITE
 if BUILD_OCTAVE_MOD
@@ -14,15 +14,15 @@ endif
 
 EXTRA_DIST = libsndfile.spec.in sndfile.pc.in Scripts/android-configure.sh \
 	Scripts/linux-to-win-cross-configure.sh \
-	CMakeLists.txt $(cmake_files) sndfile.pc.cmake.in Win32
+	CMakeLists.txt $(cmake_files) Win32
 
 cmake_files = cmake/ClipMode.cmake cmake/FindFLAC.cmake \
 	cmake/CMakeAutoGen.cmake cmake/CMakeAutoGenScript.cmake \
-	cmake/FindFLAC.cmake cmake/FindOgg.cmake cmake/FindSndio.cmake \
-	cmake/FindSpeex.cmake cmake/FindSQLite3.cmake cmake/FindVorbis.cmake \
+	cmake/FindOgg.cmake cmake/FindVorbis.cmake cmake/FindSndio.cmake \
+	cmake/FindSpeex.cmake cmake/FindSQLite3.cmake cmake/FindVorbisEnc.cmake \
 	cmake/SndFileChecks.cmake cmake/TestInline.cmake \
-	cmake/TestLargeFiles.cmake cmake/LibSndFileConfig.cmake.in \
-	cmake/TestInline.c.in
+	cmake/TestLargeFiles.cmake cmake/TestInline.c.in \
+	cmake/FindOpus.cmake cmake/SndFileConfig.cmake.in
 
 pkgconfig_DATA = sndfile.pc
 
@@ -65,8 +65,8 @@ src_libsndfile_la_LDFLAGS = -no-undefined -version-info $(SHARED_VERSION_INFO) $
 src_libsndfile_la_SOURCES = src/sndfile.c src/aiff.c src/au.c src/avr.c src/caf.c src/dwd.c src/flac.c src/g72x.c src/htk.c src/ircam.c \
 	src/macos.c src/mat4.c src/mat5.c src/nist.c src/paf.c src/pvf.c src/raw.c src/rx2.c src/sd2.c \
 	src/sds.c src/svx.c src/txw.c src/voc.c src/wve.c src/w64.c src/wavlike.c src/wav.c src/xi.c src/mpc2k.c src/rf64.c \
-	src/ogg_vorbis.c src/ogg_speex.c src/ogg_pcm.c src/ogg_opus.c src/common.h src/sfconfig.h src/sfendian.h src/wavlike.h \
-	src/sf_unistd.h src/ogg.h src/chanmap.h
+	src/ogg_vorbis.c src/ogg_speex.c src/ogg_pcm.c src/ogg_opus.c src/ogg_vcomment.c \
+	src/common.h src/sfconfig.h src/sfendian.h src/wavlike.h src/sf_unistd.h src/ogg.h src/chanmap.h src/ogg_vcomment.h
 nodist_src_libsndfile_la_SOURCES = $(nodist_include_HEADERS)
 src_libsndfile_la_LIBADD = src/GSM610/libgsm.la src/G72x/libg72x.la src/ALAC/libalac.la \
 	src/libcommon.la $(EXTERNAL_XIPH_LIBS) -lm
@@ -127,20 +127,24 @@ src_ALAC_libalac_la_SOURCES = src/ALAC/ALACAudioTypes.h src/ALAC/ALACBitUtilitie
 # builds the distribution tarball. There should be not need for the
 # end user to create these files.
 
-src/Symbols.gnu-binutils: $(top_srcdir)/src/create_symbols_file.py
-	$(PYTHON) $< linux $(VERSION) > $(top_srcdir)/$@
+# "$<" cannot portably be used in the recipe across Make implementations
+# https://www.gnu.org/software/autoconf/manual/autoconf.html#g_t_0024_003c-in-Ordinary-Make-Rules
+SYMBOL_SCRIPT = $(top_srcdir)/src/create_symbols_file.py
 
-src/Symbols.darwin: $(top_srcdir)/src/create_symbols_file.py
-	$(PYTHON) $< darwin $(VERSION) > $(top_srcdir)/$@
+src/Symbols.gnu-binutils: $(SYMBOL_SCRIPT)
+	$(PYTHON) $(SYMBOL_SCRIPT) linux $(VERSION) > $(top_srcdir)/$@
 
-src/libsndfile-1.def: $(top_srcdir)/src/create_symbols_file.py
-	$(PYTHON) $< win32 $(VERSION) > $(top_srcdir)/$@
+src/Symbols.darwin: $(SYMBOL_SCRIPT)
+	$(PYTHON) $(SYMBOL_SCRIPT) darwin $(VERSION) > $(top_srcdir)/$@
 
-src/Symbols.os2: $(top_srcdir)/src/create_symbols_file.py
-	$(PYTHON) $< os2 $(VERSION) > $(top_srcdir)/$@
+src/libsndfile-1.def: $(SYMBOL_SCRIPT)
+	$(PYTHON) $(SYMBOL_SCRIPT) win32 $(VERSION) > $(top_srcdir)/$@
 
-src/Symbols.static: $(top_srcdir)/src/create_symbols_file.py
-	$(PYTHON) $< static $(VERSION) > $(top_srcdir)/$@
+src/Symbols.os2: $(SYMBOL_SCRIPT)
+	$(PYTHON) $(SYMBOL_SCRIPT) os2 $(VERSION) > $(top_srcdir)/$@
+
+src/Symbols.static: $(SYMBOL_SCRIPT)
+	$(PYTHON) $(SYMBOL_SCRIPT) static $(VERSION) > $(top_srcdir)/$@
 
 #===============================================================================
 # Building windows resource files (if needed).
@@ -214,7 +218,7 @@ check_PROGRAMS += tests/sfversion tests/floating_point_test tests/write_read_tes
 	tests/locale_test tests/win32_ordinal_test tests/ogg_test tests/compression_size_test \
 	tests/checksum_test tests/external_libs_test tests/rdwr_test tests/format_check_test $(CPP_TEST) \
 	tests/channel_test tests/long_read_write_test tests/stdin_test tests/stdout_test \
-	tests/dither_test tests/fix_this tests/largefile_test tests/benchmark
+	tests/dither_test tests/fix_this tests/largefile_test tests/benchmark tests/ogg_opus_test
 
 BUILT_SOURCES += \
 	tests/write_read_test.c \
@@ -336,6 +340,9 @@ tests_virtual_io_test_LDADD = src/libsndfile.la
 tests_ogg_test_SOURCES = tests/ogg_test.c tests/utils.c tests/utils.h
 tests_ogg_test_LDADD = src/libsndfile.la
 
+tests_ogg_opus_test_SOURCES = tests/ogg_opus_test.c tests/utils.c tests/utils.h
+tests_ogg_opus_test_LDADD = src/libsndfile.la
+
 tests_compression_size_test_SOURCES = tests/compression_size_test.c tests/utils.c tests/utils.h tests/dft_cmp.h
 tests_compression_size_test_LDADD = src/libsndfile.la
 
@@ -383,17 +390,31 @@ tests_scale_clip_test_LDADD = src/libsndfile.la
 
 #===============================================================================
 # Autogen generated sources.
-# These GNU style rules actually work. The old style suffix rules do not.
+# Coerce the multiple inputs -> multiple outputs problem
+# into suffix rules by "linearising" the dependency graph.
+# Yes, this sucks, but GNU make patterns aren't portable,
+# see also https://github.com/erikd/libsndfile/issues/369
 
-%.c : %.def %.tpl
+SUFFIXES = .tpl .def
+
+.tpl.def:
+	touch $@
+
+# unconditionally running touch on the .def
+# files is necessary to keep all timestamps
+# consistent, in order to prevent stale files
+# from calling autogen in tarball releases.
+.def.c:
+	$(MAKE) $(AM_MAKEFLAGS) $<
 	cd $(top_srcdir)/$(@D) && autogen --writable $(<F)
 
 # recommended Automake way for multi-output targets:
 # https://www.gnu.org/software/automake/manual/html_node/Multiple-Outputs.html
-%.h : %.c %.def %.tpl
+tests/utils.h : tests/utils.c
 	@if test -f $@; then :; else \
-	  rm -f $<; \
-	  $(MAKE) $(AM_MAKEFLAGS) $<; \
+	  cd $(top_srcdir) && \
+	  rm -f tests/utils.c && \
+	  $(MAKE) $(AM_MAKEFLAGS) tests/utils.c; \
 	fi
 
 ########
@@ -408,11 +429,11 @@ dist_man_MANS = man/sndfile-info.1 man/sndfile-play.1 man/sndfile-convert.1 man/
 # Same manpage for both programs.
 man/sndfile-metadata-set.1: man/sndfile-metadata-get.1
 	-rm -f $@
-	cd $(top_srcdir)/$(@D) && $(LN_S) $(<F) $(@F)
+	cd $(top_srcdir)/man && $(LN_S) sndfile-metadata-get.1 sndfile-metadata-set.1
 
 man/sndfile-deinterleave.1: man/sndfile-interleave.1
 	-rm -f $@
-	cd $(top_srcdir)/$(@D) && $(LN_S) $(<F) $(@F)
+	cd $(top_srcdir)/man && $(LN_S) sndfile-interleave.1 sndfile-deinterleave.1
 
 #############
 # programs/ #

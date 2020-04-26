@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2017 Erik de Castro Lopo <erikd@mega-nerd.com>
+** Copyright (C) 1999-2018 Erik de Castro Lopo <erikd@mega-nerd.com>
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU Lesser General Public License as published by
@@ -81,7 +81,6 @@ ErrorStruct SndfileErrors [] =
 	{	SFE_UNIMPLEMENTED		, "File contains data in an unimplemented format." },
 	{	SFE_BAD_READ_ALIGN		, "Attempt to read a non-integer number of channels." },
 	{	SFE_BAD_WRITE_ALIGN 	, "Attempt to write a non-integer number of channels." },
-	{	SFE_UNKNOWN_FORMAT		, "File contains data in an unknown format." },
 	{	SFE_NOT_READMODE		, "Read attempted on file currently open for write." },
 	{	SFE_NOT_WRITEMODE		, "Write attempted on file currently open for read." },
 	{	SFE_BAD_MODE_RW			, "Error : This file format does not support read/write mode." },
@@ -150,6 +149,7 @@ ErrorStruct SndfileErrors [] =
 	{	SFE_WAV_ADPCM_CHANNELS	, "Error in ADPCM WAV file. Invalid number of channels." },
 	{	SFE_WAV_ADPCM_SAMPLES	, "Error in ADPCM WAV file. Invalid number of samples per block." },
 	{	SFE_WAV_GSM610_FORMAT	, "Error in GSM610 WAV file. Invalid format chunk." },
+	{	SFE_WAV_NMS_FORMAT		, "Error in NMS ADPCM WAV file. Invalid format chunk." },
 
 	{	SFE_AIFF_NO_FORM		, "Error in AIFF file, bad 'FORM' marker." },
 	{	SFE_AIFF_AIFF_NO_FORM	, "Error in AIFF file, 'AIFF' marker without 'FORM'." },
@@ -271,6 +271,8 @@ ErrorStruct SndfileErrors [] =
 	{	SFE_FILENAME_TOO_LONG	, "Error : Supplied filename too long." },
 	{	SFE_NEGATIVE_RW_LEN		, "Error : Length parameter passed to read/write is negative." },
 
+	{	SFE_OPUS_BAD_SAMPLERATE	, "Error : Opus only supports sample rates of 8000, 12000, 16000, 24000 and 48000." },
+
 	{	SFE_MAX_ERROR			, "Maximum error number." },
 	{	SFE_MAX_ERROR + 1		, NULL }
 } ;
@@ -384,9 +386,15 @@ sf_open_virtual	(SF_VIRTUAL_IO *sfvirtual, int mode, SF_INFO *sfinfo, void *user
 {	SF_PRIVATE 	*psf ;
 
 	/* Make sure we have a valid set ot virtual pointers. */
-	if (sfvirtual->get_filelen == NULL || sfvirtual->seek == NULL || sfvirtual->tell == NULL)
+	if (sfvirtual->get_filelen == NULL)
 	{	sf_errno = SFE_BAD_VIRTUAL_IO ;
-		snprintf (sf_parselog, sizeof (sf_parselog), "Bad vio_get_filelen / vio_seek / vio_tell in SF_VIRTUAL_IO struct.\n") ;
+		snprintf (sf_parselog, sizeof (sf_parselog), "Bad vio_get_filelen in SF_VIRTUAL_IO struct.\n") ;
+		return NULL ;
+		} ;
+
+	if ((sfvirtual->seek == NULL || sfvirtual->tell == NULL) && sfinfo->seekable)
+	{	sf_errno = SFE_BAD_VIRTUAL_IO ;
+		snprintf (sf_parselog, sizeof (sf_parselog), "Bad vio_seek / vio_tell in SF_VIRTUAL_IO struct.\n") ;
 		return NULL ;
 		} ;
 
@@ -588,6 +596,9 @@ sf_format_check	(const SF_INFO *info)
 				if (subformat == SF_FORMAT_ULAW || subformat == SF_FORMAT_ALAW)
 					return 1 ;
 				if (subformat == SF_FORMAT_FLOAT || subformat == SF_FORMAT_DOUBLE)
+					return 1 ;
+				if ((subformat == SF_FORMAT_NMS_ADPCM_16 || subformat == SF_FORMAT_NMS_ADPCM_24 ||
+							subformat == SF_FORMAT_NMS_ADPCM_32) && info->channels == 1)
 					return 1 ;
 				break ;
 
@@ -833,6 +844,8 @@ sf_format_check	(const SF_INFO *info)
 					return 0 ;
 				if (subformat == SF_FORMAT_VORBIS)
 					return 1 ;
+				if (subformat == SF_FORMAT_OPUS)
+					return 1 ;
 				break ;
 
 		case SF_FORMAT_MPC2K :
@@ -884,6 +897,7 @@ int
 sf_command	(SNDFILE *sndfile, int command, void *data, int datasize)
 {	SF_PRIVATE *psf = (SF_PRIVATE *) sndfile ;
 	double quality ;
+    double latency ;
 	int old_value ;
 
 	/* This set of commands do not need the sndfile parameter. */
@@ -1252,7 +1266,7 @@ sf_command	(SNDFILE *sndfile, int command, void *data, int datasize)
 			return SF_FALSE ;
 
 		case SFC_GET_CUE :
-			if (datasize != sizeof (SF_CUES) || data == NULL)
+			if (datasize < (int) sizeof (uint32_t) || data == NULL)
 			{	psf->error = SFE_BAD_COMMAND_PARAM ;
 				return SF_FALSE ;
 				} ;
@@ -1266,12 +1280,11 @@ sf_command	(SNDFILE *sndfile, int command, void *data, int datasize)
 			{	psf->error = SFE_CMD_HAS_DATA ;
 				return SF_FALSE ;
 				} ;
-			if (datasize != sizeof (SF_CUES) || data == NULL)
+			if (datasize < (int) sizeof (uint32_t) || data == NULL)
 			{	psf->error = SFE_BAD_COMMAND_PARAM ;
 				return SF_FALSE ;
 				} ;
-
-			if (psf->cues == NULL && (psf->cues = psf_cues_dup (data)) == NULL)
+			if (psf->cues == NULL && (psf->cues = psf_cues_dup (data, datasize)) == NULL)
 			{	psf->error = SFE_MALLOC_FAILED ;
 				return SF_FALSE ;
 				} ;
@@ -1364,6 +1377,12 @@ sf_command	(SNDFILE *sndfile, int command, void *data, int datasize)
 			quality = 1.0 - SF_MAX (0.0, SF_MIN (1.0, quality)) ;
 			return sf_command (sndfile, SFC_SET_COMPRESSION_LEVEL, &quality, sizeof (quality)) ;
 
+        case SFC_SET_OGG_PAGE_LATENCY_MS :
+            if (data == NULL || datasize != sizeof (double))
+                return SF_FALSE ;
+
+            latency = *((double *) data) ;
+            return sf_command (sndfile, SFC_SET_OGG_PAGE_LATENCY, &latency, sizeof (latency)) ;
 
 		default :
 			/* Must be a file specific command. Pass it on. */
@@ -3154,7 +3173,7 @@ psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 		/* Lite remove end */
 
 		default :
-				error = SFE_UNKNOWN_FORMAT ;
+				error = SF_ERR_UNRECOGNISED_FORMAT ;
 		} ;
 
 	if (error)
@@ -3307,7 +3326,6 @@ sf_get_chunk_size (const SF_CHUNK_ITERATOR * iterator, SF_CHUNK_INFO * chunk_inf
 		return psf->get_chunk_size (psf, iterator, chunk_info) ;
 
 	return SFE_BAD_CHUNK_FORMAT ;
-	return 0 ;
 } /* sf_get_chunk_size */
 
 int

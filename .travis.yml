@@ -4,7 +4,7 @@ language: c
 matrix:
   include:
     - os: linux
-      dist: trusty
+      dist: xenial
       compiler: clang
       addons:
         apt:
@@ -14,8 +14,9 @@ matrix:
             - libvorbis-dev
             - libflac-dev
             - libasound2-dev
+            - libopus-dev
     - os: linux
-      dist: trusty
+      dist: xenial
       compiler: gcc
       addons:
         apt:
@@ -25,6 +26,7 @@ matrix:
             - libvorbis-dev
             - libflac-dev
             - libasound2-dev
+            - libopus-dev
 
     - os: osx
       compiler: clang
@@ -33,19 +35,19 @@ before_install:
   - |
     if [[ "${TRAVIS_OS_NAME}" == "osx" ]]; then
       brew update
-      brew install autogen flac libogg libvorbis
-    else
-      sudo add-apt-repository ppa:ondrej/autotools -y # automake 1.15
-      sudo add-apt-repository ppa:cz.nic-labs/knot-dns -y # pkg-config 0.29.2
-      sudo apt-get update
-      sudo apt-get install -y autoconf automake-1.15 pkg-config m4 libfftw3-dev libasound2-dev
+      brew install autogen flac libogg libvorbis opus
     fi
 
 install:
   - true
 
 script:
-  - mkdir cmake-build && (cd cmake-build && cmake .. -DCMAKE_BUILD_TYPE=Release && make VERBOSE=1 && ctest -V)
+  - mkdir cmake-build && (cd cmake-build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-Wall -Wextra" && make VERBOSE=1 && ctest -V)
   - pwd
   - ./autogen.sh
-  - ./configure --enable-werror && make clean all check && make distcheck
+  - |
+    if [[ "${CC}" == "clang" ]]; then
+      ./configure --enable-werror && make clean all check && make distcheck
+    else
+      Scripts/asan-configure.sh --enable-werror && make clean all check && make distcheck
+    fi

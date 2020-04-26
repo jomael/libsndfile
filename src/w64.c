@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2017 Erik de Castro Lopo <erikd@mega-nerd.com>
+** Copyright (C) 1999-2018 Erik de Castro Lopo <erikd@mega-nerd.com>
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU Lesser General Public License as published by
@@ -326,37 +326,30 @@ w64_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 
 			case levl_HASH16 :
 					psf_log_printf (psf, "levl : %D\n", chunk_size) ;
-					chunk_size -= 24 ;
 					break ;
 
 			case list_HASH16 :
 					psf_log_printf (psf, "list : %D\n", chunk_size) ;
-					chunk_size -= 24 ;
 					break ;
 
 			case junk_HASH16 :
 					psf_log_printf (psf, "junk : %D\n", chunk_size) ;
-					chunk_size -= 24 ;
 					break ;
 
 			case bext_HASH16 :
 					psf_log_printf (psf, "bext : %D\n", chunk_size) ;
-					chunk_size -= 24 ;
 					break ;
 
 			case MARKER_HASH16 :
 					psf_log_printf (psf, "marker : %D\n", chunk_size) ;
-					chunk_size -= 24 ;
 					break ;
 
 			case SUMLIST_HASH16 :
 					psf_log_printf (psf, "summary list : %D\n", chunk_size) ;
-					chunk_size -= 24 ;
 					break ;
 
 			default :
-					psf_log_printf (psf, "*** Unknown chunk marker (%X) at position %D with length %D. Exiting parser.\n", marker, psf_ftell (psf) - 8, chunk_size) ;
-					done = SF_TRUE ;
+					psf_log_printf (psf, "*** Unknown chunk marker (%X) at position %D with length %D. Skipping and continuing.\n", marker, psf_ftell (psf) - 8, chunk_size) ;
 					break ;
 			} ;	/* switch (dword) */
 
@@ -383,7 +376,7 @@ w64_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 	if (psf->sf.channels < 1)
 		return SFE_CHANNEL_COUNT_ZERO ;
 
-	if (psf->sf.channels >= SF_MAX_CHANNELS)
+	if (psf->sf.channels > SF_MAX_CHANNELS)
 		return SFE_CHANNEL_COUNT ;
 
 	psf->endian = SF_ENDIAN_LITTLE ;		/* All W64 files are little endian. */

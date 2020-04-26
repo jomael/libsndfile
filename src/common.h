@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2017 Erik de Castro Lopo <erikd@mega-nerd.com>
+** Copyright (C) 1999-2018 Erik de Castro Lopo <erikd@mega-nerd.com>
 **
 ** This program is free software; you can redistribute it and/or modify
 ** it under the terms of the GNU Lesser General Public License as published by
@@ -573,7 +573,6 @@ enum
 	SFE_UNIMPLEMENTED,
 	SFE_BAD_READ_ALIGN,
 	SFE_BAD_WRITE_ALIGN,
-	SFE_UNKNOWN_FORMAT,
 	SFE_NOT_READMODE,
 	SFE_NOT_WRITEMODE,
 	SFE_BAD_MODE_RW,
@@ -639,6 +638,7 @@ enum
 	SFE_WAV_GSM610_FORMAT,
 	SFE_WAV_UNKNOWN_CHUNK,
 	SFE_WAV_WVPK_DATA,
+	SFE_WAV_NMS_FORMAT,
 
 	SFE_AIFF_NO_FORM,
 	SFE_AIFF_AIFF_NO_FORM,
@@ -757,6 +757,8 @@ enum
 	SFE_ALAC_FAIL_TMPFILE,
 	SFE_FILENAME_TOO_LONG,
 	SFE_NEGATIVE_RW_LEN,
+
+	SFE_OPUS_BAD_SAMPLERATE,
 
 	SFE_MAX_ERROR			/* This must be last in list. */
 } ;
@@ -1002,7 +1004,7 @@ psf_strlcpy (char *dest, size_t n, const char *src)
 
 void	*psf_memset (void *s, int c, sf_count_t n) ;
 
-SF_CUES * psf_cues_dup (const void * ptr) ;
+SF_CUES * psf_cues_dup (const void * ptr, size_t datasize) ;
 SF_CUES * psf_cues_alloc (uint32_t cue_count) ;
 void psf_get_cues (SF_PRIVATE * psf, void * data, size_t datasize) ;
 

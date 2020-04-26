@@ -191,19 +191,19 @@
 #cmakedefine01 OS_IS_WIN32
 
 /* Name of package */
-#define PACKAGE "@CPACK_PACKAGE_NAME@"
+#define PACKAGE "@PACKAGE_NAME@"
 
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT "@PACKAGE_BUGREPORT@"
 
 /* Define to the full name of this package. */
-#define PACKAGE_NAME "@CPACK_PACKAGE_NAME@"
+#define PACKAGE_NAME "@PACKAGE_NAME@"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "@CPACK_PACKAGE_NAME@ @CPACK_PACKAGE_VERSION_FULL@"
+#define PACKAGE_STRING "@PACKAGE_NAME@ @CPACK_PACKAGE_VERSION_FULL@"
 
 /* Define to the one symbol short name of this package. */
-#define PACKAGE_TARNAME "@CPACK_PACKAGE_NAME@"
+#define PACKAGE_TARNAME "@PACKAGE_NAME@"
 
 /* Define to the home page for this package. */
 #define PACKAGE_URL "@PACKAGE_URL@"
@@ -306,9 +306,6 @@
 
 /* Define to 1 if on MINIX. */
 #cmakedefine01 _MINIX
-
-/* Set to 1 to use C99 printf/snprintf in MinGW. */
-#cmakedefine01 __USE_MINGW_ANSI_STDIO
 
 /* Define as `__inline' or '__inline__' if that's what the C compiler calls it, or to nothing if it is not supported. */
 @INLINE_CODE@

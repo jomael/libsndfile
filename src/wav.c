@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2017 Erik de Castro Lopo <erikd@mega-nerd.com>
+** Copyright (C) 1999-2019 Erik de Castro Lopo <erikd@mega-nerd.com>
 ** Copyright (C) 2004-2005 David Viens <davidv@plogue.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -261,6 +261,13 @@ wav_open	(SF_PRIVATE *psf)
 		case SF_FORMAT_G721_32 :
 					error = g72x_init (psf) ;
 					break ;
+
+		case SF_FORMAT_NMS_ADPCM_16 :
+		case SF_FORMAT_NMS_ADPCM_24 :
+		case SF_FORMAT_NMS_ADPCM_32 :
+					error = nms_adpcm_init (psf) ;
+					break ;
+
 		/* Lite remove end */
 
 		case SF_FORMAT_GSM610 :
@@ -466,9 +473,9 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 						bytesread = psf_binheader_readf (psf, "4", &cue_count) ;
 						psf_log_printf (psf, "%M : %u\n", marker, chunk_size) ;
 
-						if (cue_count > 1000)
+						if (cue_count > 2500) /* 2500 is close to the largest number of cues possible because of block sizes */
 						{	psf_log_printf (psf, "  Count : %u (skipping)\n", cue_count) ;
-							psf_binheader_readf (psf, "j", (cue_count > 20 ? 20 : cue_count) * 24) ;
+							psf_binheader_readf (psf, "j", chunk_size - bytesread) ;
 							break ;
 							} ;
 
@@ -485,11 +492,15 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 								break ;
 							bytesread += thisread ;
 
-							psf_log_printf (psf,	"   Cue ID : %2d"
-													"  Pos : %5u  Chunk : %M"
-													"  Chk Start : %d  Blk Start : %d"
-													"  Offset : %5d\n",
-									id, position, chunk_id, chunk_start, block_start, offset) ;
+							if (cue_index < 10) /* avoid swamping log buffer with cues */
+								psf_log_printf (psf,	"   Cue ID : %2d"
+											"  Pos : %5u  Chunk : %M"
+											"  Chk Start : %d  Blk Start : %d"
+											"  Offset : %5d\n",
+										id, position, chunk_id, chunk_start, block_start, offset) ;
+							else if (cue_index == 10)
+								psf_log_printf (psf,	"   (Skipping)\n") ;
+
 							psf->cues->cue_points [cue_index].indx = id ;
 							psf->cues->cue_points [cue_index].position = position ;
 							psf->cues->cue_points [cue_index].fcc_chunk = chunk_id ;
@@ -627,7 +638,7 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 	if (psf->sf.channels < 1)
 		return SFE_CHANNEL_COUNT_ZERO ;
 
-	if (psf->sf.channels >= SF_MAX_CHANNELS)
+	if (psf->sf.channels > SF_MAX_CHANNELS)
 		return SFE_CHANNEL_COUNT ;
 
 	if (format != WAVE_FORMAT_PCM && (parsestage & HAVE_fact) == 0)
@@ -665,6 +676,25 @@ wav_read_header	(SF_PRIVATE *psf, int *blockalign, int *framesperblock)
 				*framesperblock = wav_fmt->msadpcm.samplesperblock ;
 				} ;
 			break ;
+
+		case WAVE_FORMAT_NMS_VBXADPCM :
+			*blockalign = wav_fmt->min.blockalign ;
+			*framesperblock = 160 ;
+			switch (wav_fmt->min.bitwidth)
+			{	case 2 :
+					psf->sf.format = SF_FORMAT_WAV | SF_FORMAT_NMS_ADPCM_16 ;
+					break ;
+				case 3 :
+					psf->sf.format = SF_FORMAT_WAV | SF_FORMAT_NMS_ADPCM_24 ;
+					break ;
+				case 4 :
+					psf->sf.format = SF_FORMAT_WAV | SF_FORMAT_NMS_ADPCM_32 ;
+					break ;
+
+				default :
+					return SFE_UNIMPLEMENTED ;
+				}
+				break ;
 
 		case WAVE_FORMAT_PCM :
 					psf->sf.format = SF_FORMAT_WAV | u_bitwidth_to_subformat (psf->bytewidth * 8) ;
@@ -841,6 +871,28 @@ wav_write_fmt_chunk (SF_PRIVATE *psf)
 
 					add_fact_chunk = SF_TRUE ;
 					break ;
+
+		case SF_FORMAT_NMS_ADPCM_16 :
+		case SF_FORMAT_NMS_ADPCM_24 :
+		case SF_FORMAT_NMS_ADPCM_32 :
+					{	int bytespersec, blockalign, bitwidth ;
+
+						bitwidth 	= subformat == SF_FORMAT_NMS_ADPCM_16 ? 2 : subformat == SF_FORMAT_NMS_ADPCM_24 ? 3 : 4 ;
+						blockalign 	= 20 * bitwidth + 2 ;
+						bytespersec	= psf->sf.samplerate * blockalign / 160 ;
+
+						/* fmt chunk. */
+						fmt_size = 2 + 2 + 4 + 4 + 2 + 2 ;
+
+						/* fmt : format, channels, samplerate */
+						psf_binheader_writef (psf, "4224", BHW4 (fmt_size), BHW2 (WAVE_FORMAT_NMS_VBXADPCM),
+									BHW2 (psf->sf.channels), BHW4 (psf->sf.samplerate)) ;
+						/*  fmt : bytespersec, blockalign, bitwidth */
+						psf_binheader_writef (psf, "422", BHW4 (bytespersec), BHW2 (blockalign), BHW2 (bitwidth)) ;
+
+						add_fact_chunk = SF_TRUE ;
+						break ;
+						}
 
 		/* Lite remove end */
 
@@ -1094,6 +1146,10 @@ wav_write_header (SF_PRIVATE *psf, int calc_length)
 		psf_binheader_writef (psf, "44", BHW4 (0), BHW4 (0)) ; /* SMTPE format */
 		psf_binheader_writef (psf, "44", BHW4 (psf->instrument->loop_count), BHW4 (0)) ;
 
+		/* Make sure we don't read past the loops array end. */
+		if (psf->instrument->loop_count > ARRAY_LEN (psf->instrument->loops))
+			psf->instrument->loop_count = ARRAY_LEN (psf->instrument->loops) ;
+
 		for (tmp = 0 ; tmp < psf->instrument->loop_count ; tmp++)
 		{	int type ;
 
@@ -1234,7 +1290,7 @@ static int
 wav_read_smpl_chunk (SF_PRIVATE *psf, uint32_t chunklen)
 {	char buffer [512] ;
 	uint32_t thisread, bytesread = 0, dword, sampler_data, loop_count ;
-	uint32_t note, start, end, type = -1, count ;
+	uint32_t note, pitch, start, end, type = -1, count ;
 	int j, k ;
 
 	chunklen += (chunklen & 1) ;
@@ -1251,10 +1307,10 @@ wav_read_smpl_chunk (SF_PRIVATE *psf, uint32_t chunklen)
 	bytesread += psf_binheader_readf (psf, "4", &note) ;
 	psf_log_printf (psf, "  Midi Note    : %u\n", note) ;
 
-	bytesread += psf_binheader_readf (psf, "4", &dword) ;
-	if (dword != 0)
+	bytesread += psf_binheader_readf (psf, "4", &pitch) ;
+	if (pitch != 0)
 	{	snprintf (buffer, sizeof (buffer), "%f",
-					(1.0 * 0x80000000) / ((uint32_t) dword)) ;
+					(1.0 * 0x80000000) / ((uint32_t) pitch)) ;
 		psf_log_printf (psf, "  Pitch Fract. : %s\n", buffer) ;
 		}
 	else
@@ -1360,6 +1416,7 @@ wav_read_smpl_chunk (SF_PRIVATE *psf, uint32_t chunklen)
 		} ;
 
 	psf->instrument->basenote = note ;
+	psf->instrument->detune = (int8_t) (pitch / (0x40000000 / 25.0) + 0.5) ;
 	psf->instrument->gain = 1 ;
 	psf->instrument->velocity_lo = psf->instrument->key_lo = 0 ;
 	psf->instrument->velocity_hi = psf->instrument->key_hi = 127 ;

@@ -116,33 +116,36 @@ psf_fclose (SF_PRIVATE *psf)
 
 int
 psf_open_rsrc (SF_PRIVATE *psf)
-{
+{	size_t count ;
+
 	if (psf->rsrc.filedes > 0)
 		return 0 ;
 
 	/* Test for MacOSX style resource fork on HPFS or HPFS+ filesystems. */
-	snprintf (psf->rsrc.path.c, sizeof (psf->rsrc.path.c), "%s/..namedfork/rsrc", psf->file.path.c) ;
+	count = snprintf (psf->rsrc.path.c, sizeof (psf->rsrc.path.c), "%s/..namedfork/rsrc", psf->file.path.c) ;
 	psf->error = SFE_NO_ERROR ;
-	if ((psf->rsrc.filedes = psf_open_fd (&psf->rsrc)) >= 0)
-	{	psf->rsrclength = psf_get_filelen_fd (psf->rsrc.filedes) ;
-		if (psf->rsrclength > 0 || (psf->rsrc.mode & SFM_WRITE))
-			return SFE_NO_ERROR ;
-		psf_close_fd (psf->rsrc.filedes) ;
-		psf->rsrc.filedes = -1 ;
-		} ;
+	if (count < sizeof (psf->rsrc.path.c))
+	{	if ((psf->rsrc.filedes = psf_open_fd (&psf->rsrc)) >= 0)
+		{	psf->rsrclength = psf_get_filelen_fd (psf->rsrc.filedes) ;
+			if (psf->rsrclength > 0 || (psf->rsrc.mode & SFM_WRITE))
+				return SFE_NO_ERROR ;
+			psf_close_fd (psf->rsrc.filedes) ;
+			psf->rsrc.filedes = -1 ;
+			} ;
 
-	if (psf->rsrc.filedes == - SFE_BAD_OPEN_MODE)
-	{	psf->error = SFE_BAD_OPEN_MODE ;
-		return psf->error ;
+		if (psf->rsrc.filedes == - SFE_BAD_OPEN_MODE)
+		{	psf->error = SFE_BAD_OPEN_MODE ;
+			return psf->error ;
+			} ;
 		} ;
 
 	/*
 	** Now try for a resource fork stored as a separate file in the same
 	** directory, but preceded with a dot underscore.
 	*/
-	snprintf (psf->rsrc.path.c, sizeof (psf->rsrc.path.c), "%s._%s", psf->file.dir.c, psf->file.name.c) ;
+	count = snprintf (psf->rsrc.path.c, sizeof (psf->rsrc.path.c), "%s._%s", psf->file.dir.c, psf->file.name.c) ;
 	psf->error = SFE_NO_ERROR ;
-	if ((psf->rsrc.filedes = psf_open_fd (&psf->rsrc)) >= 0)
+	if (count < sizeof (psf->rsrc.path.c) && (psf->rsrc.filedes = psf_open_fd (&psf->rsrc)) >= 0)
 	{	psf->rsrclength = psf_get_filelen_fd (psf->rsrc.filedes) ;
 		return SFE_NO_ERROR ;
 		} ;
@@ -151,16 +154,21 @@ psf_open_rsrc (SF_PRIVATE *psf)
 	** Now try for a resource fork stored in a separate file in the
 	** .AppleDouble/ directory.
 	*/
-	snprintf (psf->rsrc.path.c, sizeof (psf->rsrc.path.c), "%s.AppleDouble/%s", psf->file.dir.c, psf->file.name.c) ;
+	count = snprintf (psf->rsrc.path.c, sizeof (psf->rsrc.path.c), "%s.AppleDouble/%s", psf->file.dir.c, psf->file.name.c) ;
 	psf->error = SFE_NO_ERROR ;
-	if ((psf->rsrc.filedes = psf_open_fd (&psf->rsrc)) >= 0)
-	{	psf->rsrclength = psf_get_filelen_fd (psf->rsrc.filedes) ;
-		return SFE_NO_ERROR ;
-		} ;
+	if (count < sizeof (psf->rsrc.path.c))
+	{	if ((psf->rsrc.filedes = psf_open_fd (&psf->rsrc)) >= 0)
+		{	psf->rsrclength = psf_get_filelen_fd (psf->rsrc.filedes) ;
+			return SFE_NO_ERROR ;
+			} ;
 
-	/* No resource file found. */
-	if (psf->rsrc.filedes == -1)
-		psf_log_syserr (psf, errno) ;
+		/* No resource file found. */
+		if (psf->rsrc.filedes == -1)
+			psf_log_syserr (psf, errno) ;
+		}
+	else
+	{	psf->error = SFE_OPEN_FAILED ;
+		} ;
 
 	psf->rsrc.filedes = -1 ;
 
@@ -780,7 +788,7 @@ psf_open_handle (PSF_FILE * pfile)
 					NULL						/* handle to file with attributes to copy */
 					) ;
 	else
-		handle = CreateFile (
+		handle = CreateFileA (
 					pfile->path.c,				/* pointer to name of the file */
 					dwDesiredAccess,			/* access (read-write) mode */
 					dwShareMode,				/* share mode */
@@ -884,9 +892,10 @@ psf_file_valid (SF_PRIVATE *psf)
 /* USE_WINDOWS_API */ sf_count_t
 psf_fseek (SF_PRIVATE *psf, sf_count_t offset, int whence)
 {	sf_count_t new_position ;
-	LONG lDistanceToMove, lDistanceToMoveHigh ;
+	LARGE_INTEGER liDistanceToMove, liNewFilePointer ;
 	DWORD dwMoveMethod ;
-	DWORD dwResult, dwError ;
+	BOOL fResult ;
+	DWORD dwError ;
 
 	if (psf->virtual_io)
 		return psf->vio.seek (offset, whence, psf->vio_user_data) ;
@@ -906,12 +915,11 @@ psf_fseek (SF_PRIVATE *psf, sf_count_t offset, int whence)
 				break ;
 		} ;
 
-	lDistanceToMove = (DWORD) (offset & 0xFFFFFFFF) ;
-	lDistanceToMoveHigh = (DWORD) ((offset >> 32) & 0xFFFFFFFF) ;
+	liDistanceToMove.QuadPart = offset ;
 
-	dwResult = SetFilePointer (psf->file.handle, lDistanceToMove, &lDistanceToMoveHigh, dwMoveMethod) ;
+	fResult = SetFilePointerEx (psf->file.handle, liDistanceToMove, &liNewFilePointer, dwMoveMethod) ;
 
-	if (dwResult == 0xFFFFFFFF)
+	if (fResult == FALSE)
 		dwError = GetLastError () ;
 	else
 		dwError = NO_ERROR ;
@@ -921,7 +929,7 @@ psf_fseek (SF_PRIVATE *psf, sf_count_t offset, int whence)
 		return -1 ;
 		} ;
 
-	new_position = (dwResult + ((__int64) lDistanceToMoveHigh << 32)) - psf->fileoffset ;
+	new_position = liNewFilePointer.QuadPart - psf->fileoffset ;
 
 	return new_position ;
 } /* psf_fseek */
@@ -1007,8 +1015,9 @@ psf_fwrite (const void *ptr, sf_count_t bytes, sf_count_t items, SF_PRIVATE *psf
 /* USE_WINDOWS_API */ sf_count_t
 psf_ftell (SF_PRIVATE *psf)
 {	sf_count_t pos ;
-	LONG lDistanceToMoveLow, lDistanceToMoveHigh ;
-	DWORD dwResult, dwError ;
+	LARGE_INTEGER liDistanceToMove, liNewFilePointer ;
+	BOOL fResult ;
+	DWORD dwError ;
 
 	if (psf->virtual_io)
 		return psf->vio.tell (psf->vio_user_data) ;
@@ -1016,12 +1025,11 @@ psf_ftell (SF_PRIVATE *psf)
 	if (psf->is_pipe)
 		return psf->pipeoffset ;
 
-	lDistanceToMoveLow = 0 ;
-	lDistanceToMoveHigh = 0 ;
+	liDistanceToMove.QuadPart = 0 ;
 
-	dwResult = SetFilePointer (psf->file.handle, lDistanceToMoveLow, &lDistanceToMoveHigh, FILE_CURRENT) ;
+	fResult = SetFilePointerEx (psf->file.handle, liDistanceToMove, &liNewFilePointer, FILE_CURRENT) ;
 
-	if (dwResult == 0xFFFFFFFF)
+	if (fResult == FALSE)
 		dwError = GetLastError () ;
 	else
 		dwError = NO_ERROR ;
@@ -1031,7 +1039,7 @@ psf_ftell (SF_PRIVATE *psf)
 		return -1 ;
 		} ;
 
-	pos = (dwResult + ((__int64) lDistanceToMoveHigh << 32)) ;
+	pos = liNewFilePointer.QuadPart ;
 
 	return pos - psf->fileoffset ;
 } /* psf_ftell */
@@ -1087,17 +1095,19 @@ psf_is_pipe (SF_PRIVATE *psf)
 /* USE_WINDOWS_API */ sf_count_t
 psf_get_filelen_handle (HANDLE handle)
 {	sf_count_t filelen ;
-	DWORD dwFileSizeLow, dwFileSizeHigh, dwError = NO_ERROR ;
+	LARGE_INTEGER liFileSize ;
+	BOOL fResult ;
+	DWORD dwError = NO_ERROR ;
 
-	dwFileSizeLow = GetFileSize (handle, &dwFileSizeHigh) ;
+	fResult = GetFileSizeEx (handle, &liFileSize) ;
 
-	if (dwFileSizeLow == 0xFFFFFFFF)
+	if (fResult == FALSE)
 		dwError = GetLastError () ;
 
 	if (dwError != NO_ERROR)
 		return (sf_count_t) -1 ;
 
-	filelen = dwFileSizeLow + ((__int64) dwFileSizeHigh << 32) ;
+	filelen = liFileSize.QuadPart ;
 
 	return filelen ;
 } /* psf_get_filelen_handle */
@@ -1111,8 +1121,9 @@ psf_fsync (SF_PRIVATE *psf)
 /* USE_WINDOWS_API */ int
 psf_ftruncate (SF_PRIVATE *psf, sf_count_t len)
 {	int retval = 0 ;
-	LONG lDistanceToMoveLow, lDistanceToMoveHigh ;
-	DWORD dwResult, dwError = NO_ERROR ;
+	LARGE_INTEGER liDistanceToMove ;
+	BOOL fResult ;
+	DWORD dwError = NO_ERROR ;
 
 	/* This implementation trashes the current file position.
 	** should it save and restore it? what if the current position is past
@@ -1123,12 +1134,11 @@ psf_ftruncate (SF_PRIVATE *psf, sf_count_t len)
 	if (len < 0)
 		return 1 ;
 
-	lDistanceToMoveLow = (DWORD) (len & 0xFFFFFFFF) ;
-	lDistanceToMoveHigh = (DWORD) ((len >> 32) & 0xFFFFFFFF) ;
+	liDistanceToMove.QuadPart = (sf_count_t) len ;
 
-	dwResult = SetFilePointer (psf->file.handle, lDistanceToMoveLow, &lDistanceToMoveHigh, FILE_BEGIN) ;
+	fResult = SetFilePointerEx (psf->file.handle, liDistanceToMove, NULL, FILE_BEGIN) ;
 
-	if (dwResult == 0xFFFFFFFF)
+	if (fResult == FALSE)
 		dwError = GetLastError () ;
 
 	if (dwError != NO_ERROR)

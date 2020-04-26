@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2017 Erik de Castro Lopo <erikd@mega-nerd.com>
+** Copyright (C) 1999-2018 Erik de Castro Lopo <erikd@mega-nerd.com>
 ** Copyright (C) 2005 David Viens <davidv@plogue.com>
 **
 ** This program is free software; you can redistribute it and/or modify
@@ -794,8 +794,8 @@ aiff_read_header (SF_PRIVATE *psf, COMM_CHUNK *comm_fmt)
 						if (paiff->markstr == NULL)
 							return SFE_MALLOC_FAILED ;
 
-						if (mark_count > 1000)
-						{	psf_log_printf (psf, "  More than 1000 markers, skipping!\n") ;
+						if (mark_count > 2500) /* 2500 is close to the largest number of cues possible because of block sizes */
+						{	psf_log_printf (psf, "  More than 2500 markers, skipping!\n") ;
 							psf_binheader_readf (psf, "j", chunk_size - bytesread) ;
 							break ;
 						} ;
@@ -950,7 +950,7 @@ aiff_read_header (SF_PRIVATE *psf, COMM_CHUNK *comm_fmt)
 	if (psf->sf.channels < 1)
 		return SFE_CHANNEL_COUNT_ZERO ;
 
-	if (psf->sf.channels >= SF_MAX_CHANNELS)
+	if (psf->sf.channels > SF_MAX_CHANNELS)
 		return SFE_CHANNEL_COUNT ;
 
 	if (! (found_chunk & HAVE_FORM))
@@ -1030,7 +1030,7 @@ aiff_read_comm_chunk (SF_PRIVATE *psf, COMM_CHUNK *comm_fmt)
 	psf_log_printf (psf, "  Sample Rate : %d\n", samplerate) ;
 	psf_log_printf (psf, "  Frames      : %u%s\n", comm_fmt->numSampleFrames, (comm_fmt->numSampleFrames == 0 && psf->filelength > 104) ? " (Should not be 0)" : "") ;
 
-	if (comm_fmt->numChannels < 1 || comm_fmt->numChannels >= SF_MAX_CHANNELS)
+	if (comm_fmt->numChannels < 1 || comm_fmt->numChannels > SF_MAX_CHANNELS)
 	{	psf_log_printf (psf, "  Channels    : %d (should be >= 1 and < %d)\n", comm_fmt->numChannels, SF_MAX_CHANNELS) ;
 		return SFE_CHANNEL_COUNT_BAD ;
 		} ;
@@ -1120,7 +1120,6 @@ aiff_read_comm_chunk (SF_PRIVATE *psf, COMM_CHUNK *comm_fmt)
 				break ;
 
 		case GSM_MARKER :
-				psf->sf.format = SF_FORMAT_AIFF ;
 				psf->sf.format = (SF_FORMAT_AIFF | SF_FORMAT_GSM610) ;
 				break ;
 

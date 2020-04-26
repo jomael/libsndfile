@@ -1,9 +1,9 @@
-dnl Copyright (C) 1999-2018  Erik de Castro Lopo <erikd@mega-nerd.com>.
+dnl Copyright (C) 1999-2019  Erik de Castro Lopo <erikd@mega-nerd.com>.
 
 dnl Require autoconf version >= 2.69
 AC_PREREQ([2.69])
 
-AC_INIT([libsndfile],[1.0.29pre1],[sndfile@mega-nerd.com],
+AC_INIT([libsndfile],[1.0.29pre2],[sndfile@mega-nerd.com],
 		[libsndfile],[http://www.mega-nerd.com/libsndfile/])
 
 dnl Check whether we want to set defaults for CFLAGS, CXXFLAGS, CPPFLAGS and LDFLAGS
@@ -321,6 +321,7 @@ dnl  Check for Ogg, Vorbis and FLAC.
 HAVE_EXTERNAL_XIPH_LIBS=0
 EXTERNAL_XIPH_CFLAGS=""
 EXTERNAL_XIPH_LIBS=""
+EXTERNAL_XIPH_REQUIRE=""
 
 dnl Check for pkg-config outside the if statement.
 PKG_PROG_PKG_CONFIG
@@ -336,7 +337,7 @@ AS_IF([test -n "$PKG_CONFIG"], [
 				dnl Make sure the FLAC_CFLAGS value is sane.
 				FLAC_CFLAGS=`echo $FLAC_CFLAGS | $SED "s|include/FLAC|include|"`
 
-				PKG_CHECK_MOD_VERSION(OGG, ogg >= 1.1.3, ac_cv_ogg=yes, ac_cv_ogg=no)
+				PKG_CHECK_MOD_VERSION(OGG, ogg >= 1.3.0, ac_cv_ogg=yes, ac_cv_ogg=no)
 
 				AS_IF([test "x$enable_experimental" = "xyes"], [
 						PKG_CHECK_MOD_VERSION(SPEEX, speex >= 1.2, ac_cv_speex=yes, ac_cv_speex=no)
@@ -350,15 +351,22 @@ AS_IF([test -n "$PKG_CONFIG"], [
 				dnl See: http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=549899
 				PKG_CHECK_MOD_VERSION(VORBIS, vorbis >= 1.2.3, ac_cv_vorbis=yes, ac_cv_vorbis=no)
 				PKG_CHECK_MOD_VERSION(VORBISENC, vorbisenc >= 1.2.3, ac_cv_vorbisenc=yes, ac_cv_vorbisenc=no)
+
+				PKG_CHECK_MOD_VERSION(OPUS, opus >= 1.1, ac_cv_opus=yes, ac_cv_opus=no)
 				enable_external_libs=yes
 			])
 
-			AS_IF([test "x$ac_cv_flac$ac_cv_ogg$ac_cv_vorbis$ac_cv_vorbisenc" = "xyesyesyesyes"], [
+			AS_IF([test "x$ac_cv_flac$ac_cv_ogg$ac_cv_vorbis$ac_cv_vorbisenc$ac_cv_opus" = "xyesyesyesyesyes"], [
 					HAVE_EXTERNAL_XIPH_LIBS=1
 					enable_external_libs=yes
 
-					EXTERNAL_XIPH_CFLAGS="$FLAC_CFLAGS $OGG_CFLAGS $VORBIS_CFLAGS $VORBISENC_CFLAGS $SPEEX_CFLAGS"
-					EXTERNAL_XIPH_LIBS="$FLAC_LIBS $OGG_LIBS $VORBIS_LIBS $VORBISENC_LIBS $SPEEX_LIBS "
+					EXTERNAL_XIPH_CFLAGS="$FLAC_CFLAGS $VORBIS_CFLAGS $VORBISENC_CFLAGS $SPEEX_CFLAGS $OPUS_CFLAGS $OGG_CFLAGS "
+					EXTERNAL_XIPH_LIBS="$FLAC_LIBS $VORBIS_LIBS $VORBISENC_LIBS $SPEEX_LIBS $OPUS_LIBS $OGG_LIBS "
+					EXTERNAL_XIPH_REQUIRE="flac ogg vorbis vorbisenc opus"
+
+					if test x$ac_cv_speex = "xyes" ; then
+						EXTERNAL_XIPH_REQUIRE="$EXTERNAL_XIPH_REQUIRE speex"
+					fi
 				], [
 					AS_ECHO([""])
 					AC_MSG_WARN([[*** One or more of the external libraries (ie libflac, libogg and]])
@@ -372,7 +380,7 @@ AS_IF([test -n "$PKG_CONFIG"], [
 				])
 	])
 
-AC_DEFINE_UNQUOTED([HAVE_EXTERNAL_XIPH_LIBS], [$HAVE_EXTERNAL_XIPH_LIBS], [Will be set to 1 if flac, ogg and vorbis are available.])
+AC_DEFINE_UNQUOTED([HAVE_EXTERNAL_XIPH_LIBS], [$HAVE_EXTERNAL_XIPH_LIBS], [Will be set to 1 if flac, ogg, vorbis, and opus are available.])
 
 dnl ====================================================================================
 dnl  Check for libsqlite3 (only used in regtest).
@@ -561,8 +569,8 @@ AS_IF([test "x$enable_werror" = "xyes"], [
 		AC_LANG_POP([C++])
 	])
 
-common_flags="-Wall -Wextra -Wpointer-arith -Wcast-align -Wcast-qual -Wshadow -Wwrite-strings -Wundef -Wuninitialized -Winit-self"
-AX_APPEND_COMPILE_FLAGS([${common_flags} -Wdeclaration-after-statement -Wvla -Wbad-function-cast -Wnested-externs -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Waggregate-return], [CFLAGS])
+common_flags="-Wall -Wextra -Wpointer-arith -Wcast-align -Wcast-qual -Wshadow -Wwrite-strings -Wundef -Wuninitialized -Winit-self -Wno-format-truncation"
+AX_APPEND_COMPILE_FLAGS([${common_flags} -Wvla -Wbad-function-cast -Wnested-externs -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Waggregate-return], [CFLAGS])
 
 AC_LANG_PUSH([C++])
 AX_APPEND_COMPILE_FLAGS([${common_flags} -Wctor-dtor-privacy -Wnon-virtual-dtor -Woverloaded-virtual -Wreorder -Wsign-promo], [CXXFLAGS])
@@ -658,6 +666,7 @@ AC_SUBST(SNDIO_LIBS)
 
 AC_SUBST(EXTERNAL_XIPH_CFLAGS)
 AC_SUBST(EXTERNAL_XIPH_LIBS)
+AC_SUBST(EXTERNAL_XIPH_REQUIRE)
 AC_SUBST(SRC_BINDIR)
 AC_SUBST(TEST_BINDIR)
 
@@ -702,7 +711,7 @@ AC_MSG_RESULT([
 
     Experimental code : ................... ${enable_experimental:-no}
     Using ALSA in example programs : ...... ${enable_alsa:-no}
-    External FLAC/Ogg/Vorbis : ............ ${enable_external_libs:-no}
+    External FLAC/Ogg/Vorbis/Opus : ....... ${enable_external_libs:-no}
     Building Octave interface : ........... ${OCTAVE_BUILD}
 
   Tools :

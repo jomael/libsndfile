@@ -432,6 +432,21 @@ wavlike_read_fmt_chunk (SF_PRIVATE *psf, int fmtsize)
 					psf_log_printf (psf, "*** 'fmt ' chunk should be bigger than this!\n") ;
 				break ;
 
+		case WAVE_FORMAT_NMS_VBXADPCM :
+				if (wav_fmt->min.channels != 1 || wav_fmt->min.bitwidth < 2 || wav_fmt->min.bitwidth * 20 + 2 != wav_fmt->min.blockalign)
+					return SFE_WAV_NMS_FORMAT ;
+
+				bytespersec = (wav_fmt->min.samplerate * wav_fmt->min.blockalign) / 160 ;
+				if (wav_fmt->min.bytespersec == (unsigned) bytespersec)
+					psf_log_printf (psf, "  Bytes/sec     : %d\n", wav_fmt->min.bytespersec) ;
+				else
+					psf_log_printf (psf, "  Bytes/sec     : %d (should be %d)\n", wav_fmt->min.bytespersec, bytespersec) ;
+				if (fmtsize >= 18)
+				{	bytesread += psf_binheader_readf (psf, "2", &(wav_fmt->size20.extrabytes)) ;
+					psf_log_printf (psf, "  Extra Bytes   : %d\n", wav_fmt->size20.extrabytes) ;
+					} ;
+				break ;
+
 		default :
 				psf_log_printf (psf, "*** No 'fmt ' chunk dumper for this format!\n") ;
 				return SFE_WAV_BAD_FMT ;
@@ -738,7 +753,10 @@ wavlike_read_bext_chunk (SF_PRIVATE *psf, uint32_t chunksize)
 	bytes += psf_binheader_readf (psf, "b", b->origination_date, sizeof (b->origination_date)) ;
 	bytes += psf_binheader_readf (psf, "b", b->origination_time, sizeof (b->origination_time)) ;
 	bytes += psf_binheader_readf (psf, "442", &b->time_reference_low, &b->time_reference_high, &b->version) ;
-	bytes += psf_binheader_readf (psf, "bj", &b->umid, sizeof (b->umid), 190) ;
+	bytes += psf_binheader_readf (psf, "b", &b->umid, sizeof (b->umid)) ;
+	bytes += psf_binheader_readf (psf, "22", &b->loudness_value, &b->loudness_range) ;
+	bytes += psf_binheader_readf (psf, "222", &b->max_true_peak_level, &b->max_momentary_loudness, &b->max_shortterm_loudness) ;
+	bytes += psf_binheader_readf (psf, "j", 180) ;
 
 	if (chunksize > WAV_BEXT_MIN_CHUNK_SIZE)
 	{	/* File has coding history data. */
@@ -778,7 +796,9 @@ wavlike_write_bext_chunk (SF_PRIVATE *psf)
 	psf_binheader_writef (psf, "b", BHWv (b->origination_time), BHWz (sizeof (b->origination_time))) ;
 	psf_binheader_writef (psf, "442", BHW4 (b->time_reference_low), BHW4 (b->time_reference_high), BHW2 (b->version)) ;
 	psf_binheader_writef (psf, "b", BHWv (b->umid), BHWz (sizeof (b->umid))) ;
-	psf_binheader_writef (psf, "z", BHWz (190)) ;
+	psf_binheader_writef (psf, "22", BHW2 (b->loudness_value), BHW2 (b->loudness_range)) ;
+	psf_binheader_writef (psf, "222", BHW2 (b->max_true_peak_level), BHW2 (b->max_momentary_loudness), BHW2 (b->max_shortterm_loudness)) ;
+	psf_binheader_writef (psf, "z", BHWz (180)) ;
 
 	if (b->coding_history_size > 0)
 		psf_binheader_writef (psf, "b", BHWv (b->coding_history), BHWz (b->coding_history_size)) ;
@@ -948,7 +968,7 @@ wavlike_subchunk_parse (SF_PRIVATE *psf, int chunk, uint32_t chunk_length)
 					*/
 					psf_log_printf (psf, "    *** Found weird-ass zero marker. Jumping to end of chunk.\n") ;
 					if (bytesread < chunk_length)
-						bytesread += psf_binheader_readf (psf, "j", chunk_length - bytesread + 4) ;
+						bytesread += psf_binheader_readf (psf, "j", chunk_length - bytesread) ;
 					psf_log_printf (psf, "    *** Offset is now : 0x%X\n", psf_fseek (psf, 0, SEEK_CUR)) ;
 					return 0 ;
 
@@ -996,10 +1016,24 @@ wavlike_subchunk_parse (SF_PRIVATE *psf, int chunk, uint32_t chunk_length)
 
 						bytesread += psf_binheader_readf (psf, "b", buffer, chunk_size) ;
 						buffer [chunk_size] = 0 ;
-						psf_log_printf (psf, "    %M : %u : %s\n", chunk, mark_id, buffer) ;
+
+						if (mark_id < 10) /* avoid swamping log buffer with labels */
+							psf_log_printf (psf, "    %M : %u : %s\n", chunk, mark_id, buffer) ;
+						else if (mark_id == 10)
+							psf_log_printf (psf, "    (Skipping)\n") ;
+
+						if (psf->cues)
+ 						{	unsigned int i = 0 ;
+
+							/* find id to store label */
+							while (i < psf->cues->cue_count && psf->cues->cue_points [i].indx != mark_id)
+								i++ ;
+
+							if (i < psf->cues->cue_count)
+								strncpy (psf->cues->cue_points [i].name, buffer, 256) ;
+							} ;
 						} ;
 					break ;
-
 
 			case DISP_MARKER :
 			case ltxt_MARKER :
